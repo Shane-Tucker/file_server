@@ -32,8 +32,8 @@ int main() {
 
     SOCKET clientSocket = clientSetUp(); //Establish Connection
 
-    hostname = receiveData(clientSocket); //Receive 
-    cout << "Connected to server: " << hostname << endl;
+    message = receiveData(clientSocket); //Receive server hostname
+    cout << "Connected to server: " << message << endl;
     
     sendData(hostname, clientSocket);
 
@@ -69,20 +69,24 @@ int main() {
                 cout << "Not logged into any account" << endl;
             } else {
                 cout << "Logged out of user: " << currentUser << endl;
+                sendData(userCommand, clientSocket); 
                 currentUser = "";
                 loggedIn = false;
             }
         } else if (userCommand.substr(0, 4) == "ls_s" && loggedIn == true) { //If user uses ls_s
             sendData(userCommand, clientSocket); //Send command to server
             message = "";
-            message = receiveData(clientSocket); //Receive data from server
-            cout << message << endl; //Output data
+            while (message != "STOP!@#$") {
+                message = receiveData(clientSocket);
+                if (message != "STOP!@#$") {
+                    cout << message << endl;
+                }
+            }
         } else if (userCommand.substr(0, 2) == "ls" && loggedIn == true && userCommand.substr(0, 4) != "ls_s") { //Help from: https://www.geeksforgeeks.org/file-system-library-in-cpp-17/
             if (exists(currentDirectory) && is_directory(currentDirectory)) {
                 for (const auto& entry : std::filesystem::directory_iterator(currentDirectory)) {
                     string string_path(entry.path().u8string());
                     cout << string_path << endl;
-                    
                 }
             } else {
                 cout << "Directory not found" << endl;
@@ -110,20 +114,40 @@ int main() {
             if (userCommand.length() <= 7) {
                 cout << "Filename needed" << endl;
             } else if (exists(currentDirectory / userCommand.substr(7, userCommand.length() - 7))) {
+                sendData(userCommand, clientSocket);
                 ifstream readfile;
-                readfile.open(currentDirectory / userCommand.substr(7, userCommand.length() - 7)); 
-                while (!readfile.eof()) {
+                readfile.open(currentDirectory / userCommand.substr(7, userCommand.length() - 7)); //Open file
+                if (!readfile) {
+                    cout << "File unable to open" << endl;
+                    break;
+                }
+                while (!readfile.eof()) { //Take line as input, send to server, repeat til end of file
                     getline(readfile, message);
                     sendData(message, clientSocket);
                 }
+                sendData("STOP!@#$", clientSocket); //Send stop message so server knows to stop. While possible for this to be in a file, highly unlikely
+                readfile.close(); //Close file
             } else {
                 cout << "File not found" << endl;
             }
         } else if (userCommand.substr(0, 8) == "download" && loggedIn == true) {
-           if (userCommand.length() <= 9) {
-            cout << "Filename needed" << endl;
-           }
-
+            sendData(userCommand, clientSocket);
+            if (userCommand.length() <= 9) { //If no filename
+                cout << "Filename needed" << endl; 
+            } else if (receiveData(clientSocket) == "FILE DNE") { //If file DNE on server
+                cout << "File does not exist" << endl;
+            } else {
+                ofstream outfile; 
+                outfile.open(currentDirectory / userCommand.substr(9, userCommand.length() - 9)); //Open file
+                cout << "Downloading: " << userCommand.substr(9, userCommand.length() - 9) << endl;
+                while (message != "STOP!@#$") {
+                    message = receiveData(clientSocket);
+                    if (message != "STOP!@#$") {
+                        outfile << message << endl;
+                    }
+                }
+                outfile.close();
+            }
         } else if (userCommand.substr(0, 4) == "exit") { //Just exit client
             sendData(userCommand, clientSocket);
             WSACleanup();
@@ -214,7 +238,7 @@ string receiveData(SOCKET clientSocket) {
     size_t dataSize = 1;
     string temp, data = "";
     int bytesRec;
-    char receiveBuffer[8];
+    char receiveBuffer[buffer_size];
     while (dataSize > 0) {
         bytesRec = recv(clientSocket, receiveBuffer, sizeof(receiveBuffer), 0);
         if (bytesRec == SOCKET_ERROR) {
@@ -224,14 +248,17 @@ string receiveData(SOCKET clientSocket) {
         temp = charArrayToString(receiveBuffer);
         stringstream sstream(temp);
         sstream >> dataSize;
-        char *receiveMalloc = (char*) calloc(dataSize, sizeof(char));
-        bytesRec = recv(clientSocket, receiveMalloc, dataSize, 0);
+        bytesRec = recv(clientSocket, receiveBuffer, dataSize, 0);
         if (bytesRec == SOCKET_ERROR) {
             cout << "Read error: " << WSAGetLastError() << endl;
             break;
         }
-        data = data + charArrayToString(receiveMalloc);
-        free(receiveMalloc);
+        for (int i = 0; i < dataSize; i++) {
+            data = data + receiveBuffer[i];
+        }
+        if (bytesRec == dataSize) {
+            break;
+        }
     }
     return data;
 }
