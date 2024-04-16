@@ -27,6 +27,7 @@ int main() {
     sByteCount = send(serverSocket, sendBuffer, buffer_size, 0);
     if (sByteCount == SOCKET_ERROR) {
         cout << "Send error." << endl;
+        exit(-1);
     }
 }
 
