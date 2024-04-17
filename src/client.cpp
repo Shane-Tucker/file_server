@@ -43,7 +43,7 @@ int main() {
         getline(cin, userCommand);
 
         if (userCommand == "help") { //Gives user list of commands
-            cout << "login [user]\t\t\tAllows the user to sign in through the client" << endl <<
+            cout << "login [user]\t\tAllows the user to sign in through the client" << endl <<
                     "logout\t\t\tLogs the user out of current account" << endl <<
                     "ls\t\t\tDisplays current directory on client" << endl <<
                     "cd [directory]\t\tChanges client directory" << endl <<
@@ -107,6 +107,11 @@ int main() {
                         break;
                     }
                 }
+            } else if (userCommand[0] == '\\') { //Include absolute paths
+                std::filesystem::path directName = userCommand.substr(3, userCommand.length() - 3);
+                if (exists(directName)) {
+                    currentDirectory = directName;
+                }
             } else {
                 cout << "Directory not found" << endl;
             }   
@@ -121,6 +126,8 @@ int main() {
                     cout << "File unable to open" << endl;
                     break;
                 }
+                readfile.seekg(0);
+                cout << "Uploading..." << endl;
                 while (!readfile.eof()) { //Take line as input, send to server, repeat til end of file
                     getline(readfile, message);
                     sendData(message, clientSocket);
@@ -132,17 +139,20 @@ int main() {
             }
         } else if (userCommand.substr(0, 8) == "download" && loggedIn == true) {
             sendData(userCommand, clientSocket);
+            string response = receiveData(clientSocket);
+            cout << response << endl;
             if (userCommand.length() <= 9) { //If no filename
                 cout << "Filename needed" << endl; 
-            } else if (receiveData(clientSocket) == "FILE DNE") { //If file DNE on server
+            } else if (response == "FILE DNE") { //If file DNE on server
                 cout << "File does not exist" << endl;
             } else {
                 ofstream outfile; 
                 outfile.open(currentDirectory / userCommand.substr(9, userCommand.length() - 9)); //Open file
                 cout << "Downloading: " << userCommand.substr(9, userCommand.length() - 9) << endl;
+                message = "";
                 while (message != "STOP!@#$") {
                     message = receiveData(clientSocket);
-                    if (message != "STOP!@#$") {
+                    if (message != "STOP!@#$" && message != "FILE EXISTS") {
                         outfile << message << endl;
                     }
                 }
@@ -154,8 +164,12 @@ int main() {
             return 0;
         } else if (userCommand.substr(0, 8) == "shutdown") { //Shutsdown both server and client
             sendData(userCommand, clientSocket);
-            WSACleanup();
-            return 0;
+            while (true) {
+                sendData(userCommand, clientSocket);
+                if (WSAGetLastError() == 10054) {
+                    return 0;
+                }
+            }
         } else if (loggedIn == false) {
             cout << "Must login before any commands" << endl;
         } else {
@@ -194,7 +208,7 @@ SOCKET clientSetUp() {//Help from: https://medium.com/@tharunappu2004/creating-a
     }
     sockaddr_in clientService;
     clientService.sin_family = AF_INET;
-    clientService.sin_addr.s_addr = inet_addr(serverIP.c_str());  // Replace with the server's IP address
+    clientService.sin_addr.s_addr = inet_addr(serverIP.c_str());  // Connect to server's IP address
     clientService.sin_port = htons(DEFAULT_PORT);
     if (connect(clientSocket, reinterpret_cast<SOCKADDR*>(&clientService), sizeof(clientService)) == SOCKET_ERROR) { //Connect and check for errors
         cout << "Failed to connect" << endl;
@@ -222,6 +236,7 @@ void sendData(string data, SOCKET clientSocket) {
         bytesSentPre = send(clientSocket, strDataSize.c_str(), buffer_size, 0); //Send size of string to be sent
         if (bytesSentPre == SOCKET_ERROR) {
             cout << "Send error: " << WSAGetLastError() << endl;
+            break;
         }
         bytesSent = send(clientSocket, dataPtr, dataSize, 0);
         if (bytesSent == SOCKET_ERROR) {

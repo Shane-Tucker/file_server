@@ -22,9 +22,9 @@ string receiveData(SOCKET serverSocket);
 
 int main() {
     WSACleanup(); //Removes any previous connections
-    string hostname, message, currentUser, userDirectory;
+    string hostname, message, currentUser, userDirectory, temp;
     bool cont = true;
-    std::filesystem::path currentDirectory = ".files";
+    std::filesystem::path currentDirectory = std::filesystem::absolute(".files");
     if (!exists(currentDirectory)) { //Creates directory if it doesn't exist already
         create_directory(currentDirectory);
     }
@@ -34,7 +34,7 @@ int main() {
     while (cont == true) { //Allows server to connect to a different client once one quits
         SOCKET serverSocket = serverSetUp(); //Establish Connection
 
-        currentDirectory = ".files"; //Reset variables
+        currentDirectory = std::filesystem::absolute(".files"); //Reset variables
         currentUser = "";
 
         sendData(hostname, serverSocket);
@@ -50,7 +50,6 @@ int main() {
                 break;
             } 
             if (message.substr(0, 5) == "login") {
-                cout << message << endl;
                 currentUser = message.substr(6, message.find(" ", 6) - 6);
                 userDirectory = "." + currentUser;
                 currentDirectory = currentDirectory / userDirectory;
@@ -60,7 +59,7 @@ int main() {
                 cout << "Logged in as: " << currentUser << " with directory: " << currentDirectory.u8string() << endl;
             } else if (message.substr(0, 6) == "logout") {
                 currentUser = "";
-                currentDirectory = ".files";
+                currentDirectory = std::filesystem::absolute(".files");
             } else if (message.substr(0, 4) == "ls_s") { //Help from: https://www.geeksforgeeks.org/file-system-library-in-cpp-17/
                 if (exists(currentDirectory) && is_directory(currentDirectory)) {
                     for (const auto& entry : std::filesystem::directory_iterator(currentDirectory)) { //For all entries in directory, change path to string and send to client
@@ -83,17 +82,18 @@ int main() {
                 outfile.close();
             } else if (message.substr(0, 8) == "download") {
                 if (!exists(currentDirectory / message.substr(9, message.length() - 9))) { //If file DNE
-                    message = "FILE DNE";
-                    sendData(message, serverSocket);
+                    temp = "FILE DNE";
+                    sendData(temp, serverSocket);
                 } else {
-                    message = "FILE EXISTS";
-                    sendData(message, serverSocket);
+                    temp = "FILE EXISTS";
+                    sendData(temp, serverSocket);
                     ifstream readfile;
                     readfile.open(currentDirectory / message.substr(9, message.length() - 9)); //Open file
                     if (!readfile) {
                         cout << "File unable to open" << endl;
                         break;
                     }
+                    readfile.seekg(0);
                     while (!readfile.eof()) { //Take line as input, send to client, repeat til eof
                         getline(readfile, message);
                         sendData(message, serverSocket);
@@ -106,6 +106,7 @@ int main() {
                 cout << "Terminating current connection" << endl;
                 break;
             } else if (message.substr(0, 8) == "shutdown") {
+                sendData("SHUTDOWN", serverSocket);
                 WSACleanup();
                 cout << "Shutting down" << endl;
                 return 0;
@@ -179,6 +180,7 @@ void sendData(string data, SOCKET serverSocket) {
         bytesSentPre = send(serverSocket, strDataSize.c_str(), 1024, 0);
         if (bytesSentPre == SOCKET_ERROR) {
             cout << "Send error: " << WSAGetLastError << endl;
+            break;
         }
         bytesSent = send(serverSocket, dataPtr, dataSize, 0); //Send message to client
         if (bytesSent == SOCKET_ERROR) {
